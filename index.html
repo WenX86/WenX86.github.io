@@ -1,12 +1,342 @@
-<!-- index.html -->
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <title>我的第一个 GitHub Pages 网站</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>俄罗斯方块</title>
+    <style>
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #f0f0f0;
+            font-family: Arial, sans-serif;
+        }
+
+        .game-container {
+            position: relative;
+        }
+
+        #game-board {
+            background-color: #222;
+            display: grid;
+            grid-template-columns: repeat(10, 30px);
+            grid-template-rows: repeat(20, 30px);
+            gap: 1px;
+        }
+
+        .cell {
+            background-color: #333;
+        }
+
+        .tetromino {
+            background-color: #6a89cc;
+        }
+
+        .occupied {
+            background-color: #6a89cc;
+        }
+
+        .game-info {
+            position: absolute;
+            top: 0;
+            right: -150px;
+            width: 120px;
+            padding: 10px;
+            background-color: #fff;
+            border-radius: 5px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.2);
+        }
+
+        .game-over {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background-color: rgba(0,0,0,0.8);
+            color: white;
+            padding: 20px 40px;
+            border-radius: 10px;
+            font-size: 24px;
+            display: none;
+        }
+    </style>
 </head>
 <body>
-    <h1>🎉 恭喜！我的免费网站搭建成功啦！</h1>
-    <p>这是用 GitHub Pages 搭建的静态网站，无需服务器和域名～</p>
+    <div class="game-container">
+        <div id="game-board"></div>
+        <div class="game-info">
+            <div>得分: <span id="score">0</span></div>
+            <div>按空格开始/暂停</div>
+        </div>
+        <div class="game-over" id="gameOver">
+            游戏结束<br>
+            按空格重新开始
+        </div>
+    </div>
+
+    <script>
+        // 游戏常量定义
+        const COLS = 10;
+        const ROWS = 20;
+        const CELL_SIZE = 30;
+
+        // 俄罗斯方块的7种形状（I, O, T, L, J, S, Z）
+        const SHAPES = [
+            [[1, 1, 1, 1]], // I
+            [[1, 1], [1, 1]], // O
+            [[0, 1, 0], [1, 1, 1]], // T
+            [[0, 0, 1], [1, 1, 1]], // L
+            [[1, 0, 0], [1, 1, 1]], // J
+            [[0, 1, 1], [1, 1, 0]], // S
+            [[1, 1, 0], [0, 1, 1]]  // Z
+        ];
+
+        // 游戏状态变量
+        let board = [];
+        let currentPiece = null;
+        let currentX = 0;
+        let currentY = 0;
+        let score = 0;
+        let gameInterval;
+        let isGameOver = false;
+        let isPaused = false;
+
+        // 获取DOM元素
+        const gameBoard = document.getElementById('game-board');
+        const scoreElement = document.getElementById('score');
+        const gameOverElement = document.getElementById('gameOver');
+
+        // 初始化游戏面板
+        function initBoard() {
+            // 创建二维数组表示游戏面板，初始值为0（空）
+            board = Array(ROWS).fill().map(() => Array(COLS).fill(0));
+            // 渲染面板到DOM
+            gameBoard.innerHTML = '';
+            for (let row = 0; row < ROWS; row++) {
+                for (let col = 0; col < COLS; col++) {
+                    const cell = document.createElement('div');
+                    cell.className = 'cell';
+                    cell.id = `cell-${row}-${col}`;
+                    gameBoard.appendChild(cell);
+                }
+            }
+        }
+
+        // 随机生成一个新的方块
+        function getRandomPiece() {
+            const shapeIndex = Math.floor(Math.random() * SHAPES.length);
+            return SHAPES[shapeIndex];
+        }
+
+        // 设置当前方块的初始位置
+        function setCurrentPiece() {
+            currentPiece = getRandomPiece();
+            // 初始X坐标：面板中间 - 方块宽度的一半
+            currentX = Math.floor(COLS / 2) - Math.floor(currentPiece[0].length / 2);
+            currentY = 0;
+
+            // 检查新方块是否超出边界（游戏结束条件）
+            if (!isValidMove(0, 0)) {
+                gameOver();
+            }
+        }
+
+        // 检查移动是否有效（不越界、不碰撞）
+        function isValidMove(dx, dy, rotatedPiece = null) {
+            const piece = rotatedPiece || currentPiece;
+            for (let y = 0; y < piece.length; y++) {
+                for (let x = 0; x < piece[y].length; x++) {
+                    if (piece[y][x]) {
+                        const newX = currentX + x + dx;
+                        const newY = currentY + y + dy;
+                        // 检查是否超出左右边界
+                        if (newX < 0 || newX >= COLS) return false;
+                        // 检查是否超出下边界
+                        if (newY >= ROWS) return false;
+                        // 检查是否与已存在的方块碰撞（忽略上边界外的部分）
+                        if (newY >= 0 && board[newY][newX]) return false;
+                    }
+                }
+            }
+            return true;
+        }
+
+        // 渲染游戏面板（包括当前方块和已固定的方块）
+        function render() {
+            // 先清空所有单元格样式
+            for (let row = 0; row < ROWS; row++) {
+                for (let col = 0; col < COLS; col++) {
+                    const cell = document.getElementById(`cell-${row}-${col}`);
+                    cell.className = board[row][col] ? 'cell occupied' : 'cell';
+                }
+            }
+
+            // 渲染当前方块
+            if (currentPiece && !isGameOver && !isPaused) {
+                for (let y = 0; y < currentPiece.length; y++) {
+                    for (let x = 0; x < currentPiece[y].length; x++) {
+                        if (currentPiece[y][x]) {
+                            const renderX = currentX + x;
+                            const renderY = currentY + y;
+                            if (renderY >= 0) { // 只渲染可见区域的方块
+                                const cell = document.getElementById(`cell-${renderY}-${renderX}`);
+                                cell.className = 'cell tetromino';
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 将当前方块固定到面板上
+        function lockPiece() {
+            for (let y = 0; y < currentPiece.length; y++) {
+                for (let x = 0; x < currentPiece[y].length; x++) {
+                    if (currentPiece[y][x]) {
+                        const boardY = currentY + y;
+                        const boardX = currentX + x;
+                        if (boardY >= 0) { // 忽略上边界外的部分
+                            board[boardY][boardX] = 1;
+                        }
+                    }
+                }
+            }
+            // 检查并消除满行
+            checkLines();
+            // 生成新方块
+            setCurrentPiece();
+        }
+
+        // 检查并消除满行
+        function checkLines() {
+            let linesCleared = 0;
+            for (let row = ROWS - 1; row >= 0; row--) {
+                // 检查当前行是否填满
+                if (board[row].every(cell => cell === 1)) {
+                    linesCleared++;
+                    // 移除当前行，在顶部添加空行
+                    board.splice(row, 1);
+                    board.unshift(Array(COLS).fill(0));
+                    // 因为删除了一行，需要重新检查当前行
+                    row++;
+                }
+            }
+
+            // 根据消除的行数加分
+            if (linesCleared > 0) {
+                score += linesCleared * 100;
+                scoreElement.textContent = score;
+            }
+        }
+
+        // 移动方块
+        function move(dx, dy) {
+            if (isGameOver || isPaused) return;
+            
+            if (isValidMove(dx, dy)) {
+                currentX += dx;
+                currentY += dy;
+                render();
+                return true;
+            }
+            
+            // 如果向下移动无效，说明方块到底了，固定方块
+            if (dy > 0) {
+                lockPiece();
+            }
+            return false;
+        }
+
+        // 旋转方块
+        function rotate() {
+            if (isGameOver || isPaused) return;
+            
+            // 旋转逻辑：矩阵转置 + 反转每行
+            const rotated = currentPiece[0].map((_, index) => 
+                currentPiece.map(row => row[index]).reverse()
+            );
+            
+            if (isValidMove(0, 0, rotated)) {
+                currentPiece = rotated;
+                render();
+            }
+        }
+
+        // 方块自动下落
+        function drop() {
+            if (isGameOver || isPaused) return;
+            move(0, 1);
+        }
+
+        // 游戏结束处理
+        function gameOver() {
+            clearInterval(gameInterval);
+            isGameOver = true;
+            gameOverElement.style.display = 'block';
+        }
+
+        // 开始/重置游戏
+        function startGame() {
+            // 重置游戏状态
+            score = 0;
+            scoreElement.textContent = score;
+            isGameOver = false;
+            isPaused = false;
+            gameOverElement.style.display = 'none';
+            
+            // 初始化面板和方块
+            initBoard();
+            setCurrentPiece();
+            render();
+            
+            // 启动自动下落定时器（每500毫秒下落一次）
+            if (gameInterval) clearInterval(gameInterval);
+            gameInterval = setInterval(drop, 500);
+        }
+
+        // 暂停/继续游戏
+        function togglePause() {
+            if (isGameOver) return;
+            
+            isPaused = !isPaused;
+            if (isPaused) {
+                clearInterval(gameInterval);
+            } else {
+                gameInterval = setInterval(drop, 500);
+            }
+        }
+
+        // 键盘控制
+        document.addEventListener('keydown', (e) => {
+            switch (e.key) {
+                case 'ArrowLeft': // 左移
+                    move(-1, 0);
+                    break;
+                case 'ArrowRight': // 右移
+                    move(1, 0);
+                    break;
+                case 'ArrowDown': // 下移
+                    move(0, 1);
+                    break;
+                case 'ArrowUp': // 旋转
+                    rotate();
+                    break;
+                case ' ': // 空格键：开始/暂停/重新开始
+                    e.preventDefault();
+                    if (isGameOver) {
+                        startGame();
+                    } else {
+                        togglePause();
+                    }
+                    break;
+            }
+        });
+
+        // 初始化游戏
+        startGame();
+    </script>
 </body>
 </html>
